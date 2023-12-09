@@ -15,7 +15,7 @@ from googleapiclient.http import MediaIoBaseUpload
 from io import BytesIO
 from tqdm import tqdm
 from time import sleep
-
+from datetime import datetime as dt
 
 
 VK_ID = str(input("Введите VK_ID:" ))
@@ -67,7 +67,7 @@ class VK:
             photos = response.json()['response']['items']
             for photo in photos:
                 new_list = sorted(photo['sizes'], key=lambda i: int(i['height']) * int(i['width']))
-                name = photo['id']
+                name = f"{photo['likes']['user_likes']}_{dt.strftime(dt.fromtimestamp(photo['date']),'%Y-%m-%d %H-%M-%S')}"
                 new_list[-1]['file_name'] = name
                 information.append(new_list[-1])
                 # Использовать если необходимо записать на ЖМД
@@ -110,7 +110,7 @@ class YANDEX:
                 response = requests.post(self._build_url('upload'), params = {**params_}, headers = {**self.headers})
                 for i in tqdm(response.json(), bar_format="{l_bar}{bar:20}{r_bar}", desc ="Installing Happiness"):
                     sleep(1)
-                print(response.json())
+                #print(response.json())
             except KeyError:
                 pass
           
@@ -168,10 +168,36 @@ class GOOGLE:
         except HttpError as error:
           # TODO(developer) - Handle errors from drive API.
           print(f"An error occurred: {error}")
+          
+    def getFileList(self, N): 
+        self.N = N
+        existed_folders = {}
+        # Аутентификация
+        creds = None
+        if os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file('token.json')
+        if not creds or not creds.valid:
+           # Создаем новый flow для аутентификации
+            flow = google.auth.flow.InstalledAppFlow.from_client_secrets_file(
+                'token.json', ['https://www.googleapis.com/auth/drive']
+            )
+            creds = flow.run_local_server(port=0)
+            # Сохраняем учетные данные для будущих использований
+            with open('token.json', 'wb') as token:
+                json.dump(creds, token)
+        service = build('drive', 'v3', credentials=creds) 
+        resource = service.files() 
+        result = resource.list(pageSize=N, fields="files(id, name)").execute()
+        
+        result_dict = result.get('files')
+        for file in result_dict: 
+            #print(file['name'], file['id'])
+            existed_folders[file['name']] = file['id']
+        return existed_folders
 
-
-    def give_me_folder_google(self,folder_name):
+    def give_me_folder_google(self,folder_name, existed_folders):
         self.folder_name = folder_name
+        self.existed_folders = existed_folders
         # Аутентификация
         creds = None
         if os.path.exists('token.json'):
@@ -186,14 +212,18 @@ class GOOGLE:
             with open('token.json', 'wb') as token:
                 json.dump(creds, token)
         # Создание папки
-        drive_service = build('drive', 'v3', credentials=creds)
-        folder_metadata = {
-            'name': f'{self.folder_name}',
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
-        print(f"Создана папка с ID: {folder.get('id')}")
-        return folder.get('id')
+        if existed_folders.get(f'{self.folder_name}') != None:
+            res = str(existed_folders[f'{self.folder_name}'])
+        else:
+            drive_service = build('drive', 'v3', credentials=creds)
+            folder_metadata = {
+                'name': f'{self.folder_name}',
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
+            print(f"Создана папка с ID: {folder.get('id')}")
+            res = folder.get('id')
+        return res
 
 
     def upload_file(self, information, folder_id=None):
@@ -209,7 +239,7 @@ class GOOGLE:
                      }
                 response = requests.get(photo['url'])
                 media = MediaIoBaseUpload(BytesIO(response.content), mimetype='image/jpeg', resumable=True) 
-                #media = MediaFileUpload(#Адрес файла в локальном, resumable=True)  # Адрес файла в локальном реп
+                #media = MediaFileUpload(#Адрес файла в локальном, resumable=True)  # В случае необходимости загрузки с ЖМД
                 if folder_id is not None:
                     file_metadata['parents'] = [folder_id]
                 file = drive_service.files().create(
@@ -227,6 +257,6 @@ print(ya.send_photo_in_yandex('Animals', q.give_me_photos()))
 #conda info --envs
 
 f = GOOGLE(1)
-f.give_me_token_google()  
-file_id = f.upload_file(q.give_me_photos(), f.give_me_folder_google('Amimals'))
-print(f'File uploaded successfully with ID: {file_id}')
+f.give_me_token_google()
+file_id = f.upload_file(q.give_me_photos(), (f.give_me_folder_google('Amimals', f.getFileList(10))))
+print(f'Files uploaded successfully with last ID: {file_id}')
