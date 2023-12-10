@@ -62,14 +62,22 @@ class VK:
                   'photo_sizes': 1,
                   }
         information = []
+        likes_count = set()
         for i in self.give_me_folders_id():
             response = requests.get(self._build_url('photos.get'), params={**self.params, **params, 'album_id': f"{i}"})
             photos = response.json()['response']['items']
             for photo in photos:
                 new_list = sorted(photo['sizes'], key=lambda i: int(i['height']) * int(i['width']))
-                name = f"{photo['likes']['user_likes']}_{dt.strftime(dt.fromtimestamp(photo['date']),'%Y-%m-%d %H-%M-%S')}"
-                new_list[-1]['file_name'] = name
-                information.append(new_list[-1])
+                # Использовать если необходимо знать дату и время загрузки фотографии в ВК
+                #name = f"{photo['likes']['user_likes']}_{dt.strftime(dt.fromtimestamp(photo['date']),'%Y-%m-%d %H-%M-%S')}"
+                name = f"{photo['likes']['user_likes']}"
+                if name not in likes_count:
+                    new_list[-1]['file_name'] = name
+                    information.append(new_list[-1])
+                    likes_count.add(name)
+                else:
+                    new_list[-1]['file_name'] = f"{name}_{photo['date']}"
+                    information.append(new_list[-1])
                 # Использовать если необходимо записать на ЖМД
                 #biggest = new_list[-1]['url']
                 #content = requests.get(biggest).content
